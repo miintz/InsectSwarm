@@ -2,11 +2,16 @@
 using System.Collections;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 public class NewInsect : MonoBehaviour {
 
     public bool Swarm = false;
-    private bool SwarmBoss = true;
+
+    [HideInInspector()]
+    public bool SwarmBoss = true;
+
+    public bool Home = false;
 
     public int SwarmSize = 0;
     public bool GradualMassIncrease = false;
@@ -31,13 +36,14 @@ public class NewInsect : MonoBehaviour {
     public Color DebugObjectColor = Color.white;
 
     public bool Attacks = false;
+    public float AttackPower = 10.0f;
     
     private Vector3 InsectTarget;
     private Vector3 InsectOriginPosition;
     private Quaternion InsectOriginRotation;
 
     private float GameTimer = 0.0f;
-
+    private float Health = 100.0f;
     [HideInInspector()]
     public List<GameObject> InsectSwarm;
 
@@ -116,9 +122,10 @@ public class NewInsect : MonoBehaviour {
         }
 
         if (DebugObjectColor != Color.white)
-        {
-            this.GetComponent<Renderer>().material.SetColor("_Color", DebugObjectColor);
-        }
+            this.GetComponent<Renderer>().material.SetColor("_Color", DebugObjectColor);        
+
+        if(SwarmBoss)
+            this.GetComponent<Renderer>().material.SetColor("_Color", Color.black);
 	}
 	
 	// Update is called once per frame
@@ -136,19 +143,27 @@ public class NewInsect : MonoBehaviour {
             Fly();
         }
 
-        if (Attacks)
-        { 
+        if (Attacks) //dit is de positie van de ANDERE boss
+        {
             //verplaats de region, komen de insects er vanzelf achterna
             //vind de dichtsbijzijnde swarmboss en vlieg m aan
-            GameObject[] bosses = GameObject.FindGameObjectsWithTag("Swarmboss");            
+            GameObject[] bosses = GameObject.FindGameObjectsWithTag("Swarmboss");
             foreach (GameObject boss in bosses)
             {
                 if (boss != gameObject) //niet achter jezelf aan
-                {                    
+                {
                     //hier moet het meerdere swarms ding in komen
                     RegionOrigin = boss.transform.position;
                 }
             }
+        }
+        else if(SwarmBoss)
+        {            
+            //eigen boss volgen
+            foreach (GameObject item in InsectSwarm)
+            {
+                item.GetComponent<NewInsect>().RegionOrigin = transform.position;                    
+            }            
         }
         
 
@@ -195,6 +210,52 @@ public class NewInsect : MonoBehaviour {
             Gizmos.DrawWireMesh(cu, InsectTarget, Quaternion.identity, this.transform.localScale);
 
             DestroyImmediate(go);
+        }
+    }
+    
+    private void OnCollisionEnter(Collision col)
+    {
+        try
+        {
+            if (!InsectSwarm.ToList().Contains(col.gameObject) && col.gameObject.GetComponent<NewInsect>() != null)
+            {
+                //subtract health
+                col.gameObject.GetComponent<NewInsect>().Health -= AttackPower;
+
+                if (col.gameObject.GetComponent<NewInsect>().Health < 0.0f)
+                {
+                    Debug.Log(name + " killed " + col.gameObject.name);
+
+                    if (col.gameObject.GetComponent<NewInsect>().SwarmBoss)
+                        col.gameObject.GetComponent<NewInsect>().FindNewSwarmboss();
+
+                    //was dit de swarmboss? Moet de next in command in command komen
+
+                    col.gameObject.SetActive(false);
+                }
+            }
+            else { }
+            //eigen doelpunt
+        }
+        catch (ArgumentNullException e)
+        { 
+            
+        }
+    }
+
+    private void FindNewSwarmboss()
+    {
+        foreach (GameObject Insect in InsectSwarm)
+        {
+            if (Insect.activeSelf)
+            {
+                Debug.Log(Insect.name + " is now in charge of the swarm");
+
+                Insect.GetComponent<NewInsect>().SwarmBoss = true;
+                Insect.GetComponent<Renderer>().material.SetColor("_Color", Color.black);
+                //zo, gevonden
+                break;
+            }
         }
     }
 }
