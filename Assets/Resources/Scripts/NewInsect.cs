@@ -6,21 +6,29 @@ using System.Linq;
 
 public class NewInsect : MonoBehaviour {
 
+    [Tooltip("Copy this instance into a swarm.")]
     public bool Swarm = false;
+    public int SwarmSize = 0;
 
     [HideInInspector()]
     public bool SwarmBoss = true;
 
-    public bool Home = false;
+    [Tooltip("Is this the home team?")]
+    public bool HomeTeam = false;
 
-    public int SwarmSize = 0;
+    [Tooltip("Increases the mass of each new swarm instance. Impacts attack power.")] 
     public bool GradualMassIncrease = false;
+    [Tooltip("Decreases the drag of each new swarm instance. Impacts maneuverability.")]
     public bool GradualDragDecrease = false;
+    [Tooltip("Multiplication of the drag and mass increase and decrease.")]
     public int GradualMassIncreaseSize = 1;
 
-    public bool FollowTarget = false;    
+    [Tooltip("Follow a specific target.")]
+    public bool FollowTarget = false;
+    [Tooltip("The target.")]
     public Transform FollowTargetTransform;
 
+    [Tooltip("Speed of the insects.")]
     public int Speed = 1;
 
     public bool GoToTarget = false;
@@ -50,7 +58,7 @@ public class NewInsect : MonoBehaviour {
 
     private bool Duplicate = false;
     private float UniqueTimeMod = 0.0f;
-
+    public bool Blocked = false;
 	// Use this for initialization
 	void Start () {
         
@@ -69,11 +77,16 @@ public class NewInsect : MonoBehaviour {
             InsectSwarm = new List<GameObject>();
             for (int o = 0; o < SwarmSize; o++)
             {
+                //plaats op een punt in de spere, anders colliden ze
+                Vector3 pos = randomSpherePoint(transform.position.x, transform.position.y, transform.position.z, RegionSize );
+                
+                Vector3 NewInsectPosition = new Vector3(pos.x, pos.y, pos.z);
+
                 GameObject i = GameObject.CreatePrimitive(PrimitiveType.Cube);
 
                 i.name = this.name + "Swarm" +  o;
 
-                i.transform.position = this.transform.position;
+                i.transform.position = NewInsectPosition;
                 i.transform.localScale = this.transform.localScale;
 
                 i.AddComponent<NewInsect>();
@@ -92,6 +105,7 @@ public class NewInsect : MonoBehaviour {
                 i.GetComponent<NewInsect>().DebugObjectColor = DebugObjectColor;
                 i.GetComponent<NewInsect>().SwarmBoss = false;
                 i.GetComponent<NewInsect>().Attacks = Attacks;
+                i.GetComponent<NewInsect>().Blocked = Blocked;
                 
                 i.AddComponent<Rigidbody>();
 
@@ -135,29 +149,33 @@ public class NewInsect : MonoBehaviour {
 	
 	// Update is called once per frame
 	void Update () 
-    {      
-        if (GoToTarget && Vector3.Distance(transform.position, InsectTarget) > RetainDistanceToOrigin)
-        {                        
-            transform.LookAt(InsectTarget);
-
-            this.GetComponent<Rigidbody>().velocity += transform.forward * Speed;
-        }
-
-        if (Flying && (FlyingTime + UniqueTimeMod) < GameTimer)
+    {
+        if (!Blocked)
         {
-            Fly();
-        }    
-        else if(SwarmBoss)
-        {            
-            //eigen boss volgen
-            foreach (GameObject item in InsectSwarm)
-            {
-                item.GetComponent<NewInsect>().RegionOrigin = transform.position;                    
-            }            
-        }
-        
+            OnKeyPress();
 
-        GameTimer += Time.deltaTime;
+            if (GoToTarget && Vector3.Distance(transform.position, InsectTarget) > RetainDistanceToOrigin)
+            {
+                transform.LookAt(InsectTarget);
+
+                this.GetComponent<Rigidbody>().velocity += transform.forward * Speed;
+            }
+
+            if (Flying && (FlyingTime + UniqueTimeMod) < GameTimer)
+            {
+                Fly();
+            }
+            else if (SwarmBoss)
+            {
+                //eigen boss volgen
+                foreach (GameObject item in InsectSwarm)
+                {
+                    item.GetComponent<NewInsect>().RegionOrigin = transform.position;
+                }
+            }
+
+            GameTimer += Time.deltaTime;
+        }
 	}
 
     private void Attack()
@@ -167,49 +185,58 @@ public class NewInsect : MonoBehaviour {
         GameObject[] bosses = GameObject.FindGameObjectsWithTag("Swarmboss");
         foreach (GameObject boss in bosses)
         {
-            if (boss != gameObject) //niet achter jezelf aan
+            if (boss.name != gameObject.name) //niet achter jezelf aan
             {
+                Debug.Log(name + " is attacking: " + boss.name);
                 //hier moet het meerdere swarms ding in komen
                 RegionOrigin = boss.transform.position;
             }
         }
 
-        if (!AttackTarget.activeSelf || AttackTarget == gameObject)
+        if (!AttackTarget.activeSelf || AttackTarget.name == gameObject.name)
         {
             //set new insect target to follow around
             //closest
-
-            List<GameObject> ll = new List<GameObject>();
-
-            GameObject[] boss = GameObject.FindGameObjectsWithTag("Swarmboss");
-            foreach (GameObject b in boss)
+            if (Swarm)
             {
-                if (InsectSwarm.ToList().Count(t => t.name == b.name) == 0) //niet achter jezelf aan
+                List<GameObject> ll = new List<GameObject>();
+
+                GameObject[] boss = GameObject.FindGameObjectsWithTag("Swarmboss");
+                foreach (GameObject b in boss)
                 {
-                    ll = b.GetComponent<NewInsect>().InsectSwarm;
-                    break;
+                    if (InsectSwarm.ToList().Count(t => t.name == b.name) == 0) //niet achter jezelf aan
+                    {
+                        ll = b.GetComponent<NewInsect>().InsectSwarm;
+                        break;
+                    }
+                }
+
+                Dictionary<float, GameObject> distDic = new Dictionary<float, GameObject>();
+
+                foreach (GameObject l in ll)
+                {
+                    if (l.activeSelf)
+                        distDic.Add(Vector3.Distance(this.transform.position, l.transform.position), l);
+                }
+
+                List<float> distances = distDic.Keys.ToList();
+                distances.Sort();
+
+                if (distDic.Count != 0)
+                {
+                    AttackTarget = distDic[distances[0]];
                 }
             }
-
-            Dictionary<float, GameObject> distDic = new Dictionary<float, GameObject>();
-
-            foreach (GameObject l in ll)
-            {
-                if (l.activeSelf)
-                    distDic.Add(Vector3.Distance(this.transform.position, l.transform.position), l);
+            else
+            { 
+                //geen swarm, dus maar 1 insect hier
+                GameObject[] boss = GameObject.FindGameObjectsWithTag("Swarmboss");
+                foreach (GameObject b in boss)
+                {
+                    if (b.name != name)
+                        AttackTarget = b;
+                }
             }
-
-            List<float> distances = distDic.Keys.ToList();
-            distances.Sort();
-
-            if (distDic.Count != 0)
-            {
-                AttackTarget = distDic[distances[0]];
-            }
-            //else
-            //  Debug.Log("No new target");
-
-            //Debug.Log(name + " has new target " + AttackTarget.name);
         }
     }
 
@@ -220,24 +247,35 @@ public class NewInsect : MonoBehaviour {
             Attack();
         }
 
-        if (!FollowTarget && !Attacks)
+        if (this.gameObject.tag != "Swarmboss")
         {
-            Quaternion rot = UnityEngine.Random.rotation;
-            Vector3 rotnorm = rot * Vector3.forward;
+            if (!FollowTarget && !Attacks)
+            {
+                Quaternion rot = UnityEngine.Random.rotation;
+                Vector3 rotnorm = rot * Vector3.forward;
 
-            rotnorm *= UnityEngine.Random.Range(-RegionSize, RegionSize);
-            rotnorm += RegionOrigin;
+                rotnorm *= UnityEngine.Random.Range(-RegionSize, RegionSize);
+                rotnorm += RegionOrigin;
 
-            InsectTarget = rotnorm;
-        }
-        else if (Attacks && AttackTarget.activeSelf)
-        {
-            //Debug.Log(name + " flying to " + AttackTarget.name);
-            InsectTarget = AttackTarget.transform.position;
+                InsectTarget = rotnorm;
+            }
+            else if (Attacks && AttackTarget.activeSelf)
+            {
+                //Debug.Log(name + " flying to " + AttackTarget.name);
+                InsectTarget = AttackTarget.transform.position;
+            }
+            else
+            {
+                //InsectTarget = FollowTargetTransform.position; //something goes wrong here
+            }
         }
         else
-        {
-            //InsectTarget = FollowTargetTransform.position; //something goes wrong here
+        { 
+            //dit is de swarmboss, moet alleen maar gaan als er een aanval is
+            if (Attacks && AttackTarget.activeSelf)
+            {
+                InsectTarget = AttackTarget.transform.position;
+            }
         }
 
         GameTimer = 0.0f; 
@@ -261,7 +299,30 @@ public class NewInsect : MonoBehaviour {
         }
     }
 
+    Vector3 randomSpherePoint(float x0, float y0, float z0, float radius)
+    {
+       float u = UnityEngine.Random.value;
+       var v = UnityEngine.Random.value;
+
+       var theta = 2 * Math.PI * u;
+       var phi = Math.Acos(2 * v - 1);
+       
+       float x = x0 + (radius * (float)Math.Sin(phi) * (float)Math.Cos(theta));
+       float y = y0 + (radius * (float)Math.Sin(phi) * (float)Math.Sin(theta));
+       float z = z0 + (radius * (float)Math.Cos(phi));
+
+       return new Vector3(x,y,z);
+    }
+
     #region Handler functions
+
+    private void OnKeyPress()
+    {
+        if (Input.GetKeyDown(KeyCode.P))
+        {
+            Attacks = true;
+        }
+    }
 
     private void OnDrawGizmos()
     {        
@@ -299,19 +360,18 @@ public class NewInsect : MonoBehaviour {
             //todo
 
             bool localattack = true;
-            if (localvelocity > remotevelocity)
+            if (localvelocity < remotevelocity)
                 localattack = false;
 
             if (InsectSwarm.ToList().Count(tag => tag.name == col.gameObject.name) == 0 && col.gameObject.GetComponent<NewInsect>() != null)
-            {
-                
+            {                
                 //subtract health
                 if (!localattack)
                     col.gameObject.GetComponent<NewInsect>().Health -= AttackPower;
                 else
                     this.Health -= AttackPower;
 
-                if (col.gameObject.GetComponent<NewInsect>().Health < 0.0f)
+                if (col.gameObject.GetComponent<NewInsect>().Health <= 0.0f)
                 {
                     
                     if (!localattack)
