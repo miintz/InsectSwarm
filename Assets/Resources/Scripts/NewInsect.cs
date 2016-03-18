@@ -37,7 +37,8 @@ public class NewInsect : MonoBehaviour {
 
     public bool Attacks = false;
     public float AttackPower = 10.0f;
-    
+    public GameObject AttackTarget;
+
     private Vector3 InsectTarget;
     private Vector3 InsectOriginPosition;
     private Quaternion InsectOriginRotation;
@@ -57,6 +58,8 @@ public class NewInsect : MonoBehaviour {
         InsectOriginPosition = transform.position;
         RegionOrigin = InsectOriginPosition;
         InsectTarget = InsectOriginPosition;
+
+        AttackTarget = gameObject;
 
         if (SwarmBoss)
             this.tag = "Swarmboss";
@@ -114,6 +117,8 @@ public class NewInsect : MonoBehaviour {
                 InsectSwarm.Add(i);
             }
 
+            InsectSwarm.Add(this.gameObject);
+
             //assign lijst aan alle instanties
             for (int u = 0; u < InsectSwarm.Count - 1; u++)
             {
@@ -141,22 +146,7 @@ public class NewInsect : MonoBehaviour {
         if (Flying && (FlyingTime + UniqueTimeMod) < GameTimer)
         {
             Fly();
-        }
-
-        if (Attacks) //dit is de positie van de ANDERE boss
-        {
-            //verplaats de region, komen de insects er vanzelf achterna
-            //vind de dichtsbijzijnde swarmboss en vlieg m aan
-            GameObject[] bosses = GameObject.FindGameObjectsWithTag("Swarmboss");
-            foreach (GameObject boss in bosses)
-            {
-                if (boss != gameObject) //niet achter jezelf aan
-                {
-                    //hier moet het meerdere swarms ding in komen
-                    RegionOrigin = boss.transform.position;
-                }
-            }
-        }
+        }    
         else if(SwarmBoss)
         {            
             //eigen boss volgen
@@ -170,9 +160,67 @@ public class NewInsect : MonoBehaviour {
         GameTimer += Time.deltaTime;
 	}
 
+    private void Attack()
+    {
+        //verplaats de region, komen de insects er vanzelf achterna
+        //vind de dichtsbijzijnde swarmboss en vlieg m aan
+        GameObject[] bosses = GameObject.FindGameObjectsWithTag("Swarmboss");
+        foreach (GameObject boss in bosses)
+        {
+            if (boss != gameObject) //niet achter jezelf aan
+            {
+                //hier moet het meerdere swarms ding in komen
+                RegionOrigin = boss.transform.position;
+            }
+        }
+
+        if (!AttackTarget.activeSelf || AttackTarget == gameObject)
+        {
+            //set new insect target to follow around
+            //closest
+
+            List<GameObject> ll = new List<GameObject>();
+
+            GameObject[] boss = GameObject.FindGameObjectsWithTag("Swarmboss");
+            foreach (GameObject b in boss)
+            {
+                if (InsectSwarm.ToList().Count(t => t.name == b.name) == 0) //niet achter jezelf aan
+                {
+                    ll = b.GetComponent<NewInsect>().InsectSwarm;
+                    break;
+                }
+            }
+
+            Dictionary<float, GameObject> distDic = new Dictionary<float, GameObject>();
+
+            foreach (GameObject l in ll)
+            {
+                if (l.activeSelf)
+                    distDic.Add(Vector3.Distance(this.transform.position, l.transform.position), l);
+            }
+
+            List<float> distances = distDic.Keys.ToList();
+            distances.Sort();
+
+            if (distDic.Count != 0)
+            {
+                AttackTarget = distDic[distances[0]];
+            }
+            //else
+            //  Debug.Log("No new target");
+
+            //Debug.Log(name + " has new target " + AttackTarget.name);
+        }
+    }
+
     private void Fly()
-    {  
-        if (!FollowTarget)
+    {
+        if (Attacks)
+        {
+            Attack();
+        }
+
+        if (!FollowTarget && !Attacks)
         {
             Quaternion rot = UnityEngine.Random.rotation;
             Vector3 rotnorm = rot * Vector3.forward;
@@ -182,13 +230,38 @@ public class NewInsect : MonoBehaviour {
 
             InsectTarget = rotnorm;
         }
+        else if (Attacks && AttackTarget.activeSelf)
+        {
+            //Debug.Log(name + " flying to " + AttackTarget.name);
+            InsectTarget = AttackTarget.transform.position;
+        }
         else
-        {                
-            InsectTarget = FollowTargetTransform.position;
+        {
+            //InsectTarget = FollowTargetTransform.position; //something goes wrong here
         }
 
-        GameTimer = 0.0f;        
+        GameTimer = 0.0f; 
     }
+
+    private void FindNewSwarmboss()
+    {
+        foreach (GameObject Insect in InsectSwarm)
+        {
+            if (Insect.activeSelf && Insect.name != name) //niet zelf
+            {
+                Insect.GetComponent<NewInsect>().SwarmBoss = true;
+                Insect.GetComponent<Renderer>().material.SetColor("_Color", Color.black);
+                //zo, gevonden
+
+                this.tag = "Insects";
+                Insect.tag = "Swarmboss";
+
+                break;
+            }
+        }
+    }
+
+    #region Handler functions
 
     private void OnDrawGizmos()
     {        
@@ -217,45 +290,56 @@ public class NewInsect : MonoBehaviour {
     {
         try
         {
-            if (!InsectSwarm.ToList().Contains(col.gameObject) && col.gameObject.GetComponent<NewInsect>() != null)
+            float localvelocity = GetComponent<Rigidbody>().velocity.magnitude;
+            float remotevelocity = col.gameObject.GetComponent<Rigidbody>().velocity.magnitude;
+
+            //compare vectors, als de ene van achteren komt heeft ie voorrang
+            Vector3 localvector = GetComponent<Rigidbody>().velocity;
+            Vector3 remotevector = col.gameObject.GetComponent<Rigidbody>().velocity;
+            //todo
+
+            bool localattack = true;
+            if (localvelocity > remotevelocity)
+                localattack = false;
+
+            if (InsectSwarm.ToList().Count(tag => tag.name == col.gameObject.name) == 0 && col.gameObject.GetComponent<NewInsect>() != null)
             {
+                
                 //subtract health
-                col.gameObject.GetComponent<NewInsect>().Health -= AttackPower;
+                if (!localattack)
+                    col.gameObject.GetComponent<NewInsect>().Health -= AttackPower;
+                else
+                    this.Health -= AttackPower;
 
                 if (col.gameObject.GetComponent<NewInsect>().Health < 0.0f)
                 {
-                    Debug.Log(name + " killed " + col.gameObject.name);
+                    
+                    if (!localattack)
+                    {
+                        Debug.Log( col.gameObject.name + " (SwarmBoss: " + col.gameObject.GetComponent<NewInsect>().SwarmBoss + ") killed by " + gameObject.name);
 
-                    if (col.gameObject.GetComponent<NewInsect>().SwarmBoss)
-                        col.gameObject.GetComponent<NewInsect>().FindNewSwarmboss();
+                        if (col.gameObject.GetComponent<NewInsect>().SwarmBoss)                            
+                            col.gameObject.GetComponent<NewInsect>().FindNewSwarmboss();
+                        
+                        col.gameObject.SetActive(false);
+                    }
+                    else
+                    {                        
+                        if (this.SwarmBoss)                     
+                            this.FindNewSwarmboss();                        
 
+                        this.gameObject.SetActive(false);
+                    }
                     //was dit de swarmboss? Moet de next in command in command komen
 
-                    col.gameObject.SetActive(false);
+                    
                 }
             }
-            else { }
-            //eigen doelpunt
         }
         catch (ArgumentNullException e)
         { 
             
         }
     }
-
-    private void FindNewSwarmboss()
-    {
-        foreach (GameObject Insect in InsectSwarm)
-        {
-            if (Insect.activeSelf)
-            {
-                Debug.Log(Insect.name + " is now in charge of the swarm");
-
-                Insect.GetComponent<NewInsect>().SwarmBoss = true;
-                Insect.GetComponent<Renderer>().material.SetColor("_Color", Color.black);
-                //zo, gevonden
-                break;
-            }
-        }
-    }
+    #endregion
 }
